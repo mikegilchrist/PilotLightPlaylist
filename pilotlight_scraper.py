@@ -1,98 +1,101 @@
-# Version 1.1.0
+# Version 1.4.8 (reverted: match only ALL CAPS names)
 
+import argparse
+from datetime import datetime, timedelta
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime, timedelta
 import re
-import sys
 
-# Step 1: Scrape upcoming artist info from thepilotlight.com (future events only)
-def get_upcoming_artist_info(start_week=0, stop_week=3):
-    url = "https://www.thepilotlight.com"
-    response = requests.get(url)
-    soup = BeautifulSoup(response.text, "html.parser")
+parser = argparse.ArgumentParser(description="Scrape Pilot Light upcoming events")
+parser.add_argument("--week_start", type=int, default=0)
+parser.add_argument("--week_stop", type=int, default=-1)
+args = parser.parse_args()
 
-    today = datetime.today().date()
-    start_date = today + timedelta(weeks=start_week)
-    end_date = today + timedelta(weeks=stop_week)
+start_week = args.week_start
+stop_week = args.week_stop
 
-    ignore_phrases = ["Out Series"]
-    cancel_phrases = ["UPDATE", "UPDATE!"]
+URL = "https://thepilotlight.com"
+IGNORE_PHRASES = ["Out Series", "UPDATE", "UPDATE!", "Improvised music sets"]
 
-    paragraphs = soup.find_all("p")
-    events = []
+response = requests.get(URL)
+soup = BeautifulSoup(response.text, "html.parser")
+paragraphs = soup.find_all("p")
 
-    for p in paragraphs:
-        # Remove <s> tags and capture their contents
-        struck_texts = set()
-        for s in p.find_all("s"):
-            struck_texts.update(re.findall(r"\b[A-Z][A-Z0-9\s&!'.-]+\b", s.get_text(separator=" ", strip=True)))
-            s.extract()
+today = datetime.today().date()
+start_date = today + timedelta(weeks=start_week)
+end_date = None if stop_week == -1 else today + timedelta(weeks=stop_week)
 
-        raw_text = p.get_text(separator=" ", strip=True)
+def parse_event(p):
+    for tag in p.find_all(['s']):
+        tag.decompose()
 
-        # Remove text between **...** (markdown-style emphasis)
-        raw_text = re.sub(r"\*\*.*?\*\*", "", raw_text)
+    text = p.get_text(separator="\n")
+    text = text.replace("\u2013", "-").replace("\u2014", "-").replace("–", "-").replace("—", "-")
+    text = re.sub(r"\s+", " ", text)
 
-        # Skip if it's just an "Out Series" improvised music set
-        if any(phrase in raw_text for phrase in ignore_phrases) and "Improvised music" in raw_text:
+    match = re.search(r"(\w+day)\s+(\w+)\s+(\d+).*?\$(FREE|\d+)", text, re.IGNORECASE)
+    if not match:
+        return None
+
+    date_str = f"{match.group(2)} {match.group(3)} {datetime.today().year}"
+    try:
+        show_date = datetime.strptime(date_str, "%B %d %Y").date()
+    except ValueError:
+        print(f"Date parse error: '{date_str}' from text: {text}")
+        return None
+
+    print(f"Parsed show date: {show_date}, Today: {today}, Start: {start_date}")
+
+    if show_date < start_date:
+        print(f"Skipping past show: {show_date} < {start_date}")
+        return None
+    if end_date and show_date > end_date:
+        print(f"Skipping future show: {show_date} > {end_date}")
+        return None
+
+    price = match.group(4).upper()
+
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
+    band_lines = []
+    for line in lines:
+        if any(phrase in line for phrase in IGNORE_PHRASES):
             continue
+        if re.search(r"[A-Z]{2,}", line):
+            band_lines.append(line)
 
-        clean_text = re.sub(r'(\d+)(st|nd|rd|th)', r'\1', raw_text)  # Remove ordinal suffixes
-
-        # Try to extract date from the first part of the string
-        match = re.match(r"^(\w+day) (\w+ \d+)(.*)", clean_text)
-        if match:
-            try:
-                event_date = datetime.strptime(match.group(2), "%B %d").replace(year=today.year).date()
-                if start_date <= event_date <= end_date:
-                    filtered_text = raw_text
-
-                    band_matches = re.findall(r"\b[A-Z][A-Z0-9\s&!'.-]+\b", filtered_text)
-                    band_names = []
-                    for b in band_matches:
-                        name = b.strip()
-                        if name in ignore_phrases or name in cancel_phrases or len(name) <= 1:
-                            continue
-                        if name in struck_texts:
-                            continue
-                        band_names.append(name)
-
-                    # Extract pricing info
-                    price_match = re.search(r"\$FREE|\$\d+", raw_text)
-                    price_info = price_match.group() if price_match else ""
-
-                    if band_names:
-                        events.append({
-                            "date": event_date,
-                            "bands": band_names,
-                            "info": price_info
-                        })
-            except ValueError:
+    bands = []
+    for line in band_lines:
+        parts = re.split(r"with|and|,|/", line, flags=re.IGNORECASE)
+        for part in parts:
+            part = part.strip()
+            if part.upper() in ["FREE", "UPDATE", "UPDATE!"]:
                 continue
+            if part and part.isupper():
+                bands.append(part)
 
-    # Sort by date
-    events.sort(key=lambda x: x["date"])
-    return events, start_date, end_date
+    if not bands:
+        return None
 
-if __name__ == "__main__":
-    start_week = int(sys.argv[1]) if len(sys.argv) > 1 else 0
-    stop_week = int(sys.argv[2]) if len(sys.argv) > 2 else 3
+    return f"{show_date} | {', '.join(bands)} | ${price}"
 
-    events, start_date, end_date = get_upcoming_artist_info(start_week, stop_week)
-    print("Upcoming events:")
+events = []
+for p in paragraphs:
+    result = parse_event(p)
+    if result:
+        events.append(result)
 
-    date_str = datetime.today().strftime("%Y-%m-%d")
-    filename = f"upcoming_artists_{date_str}.txt"
+print("Upcoming events:")
+for e in events:
+    print(e)
 
-    with open(filename, "w", encoding="utf-8") as file:
-        for event in events:
-            event_line = f"{event['date'].strftime('%Y-%m-%d')} | {', '.join(event['bands'])} | {event['info']}"
-            print(event_line)
-            file.write(event_line + "\n")
+filename = "upcoming_artists_all.txt" if stop_week == -1 else f"upcoming_artists_{today.strftime('%Y-%m-%d')}.txt"
+with open(filename, "w", encoding="utf-8") as f:
+    for e in events:
+        f.write(e + "\n")
 
-    print(f"\nSaved to {filename}")
-
-    # Construct playlist title with date range
-    playlist_title = f"Pilot Light Shows {start_date.strftime('%b %d')}–{end_date.strftime('%b %d')}"
-    print(f"Suggested playlist title: {playlist_title}")
+start_label = start_date.strftime("%b %d")
+end_label = "" if stop_week == -1 else (end_date - timedelta(days=1)).strftime("%b %d")
+if end_label:
+    print(f"Suggested playlist title: Pilot Light Shows {start_label}–{end_label}")
+else:
+    print("Suggested playlist title: Pilot Light Playlist: Upcoming Shows")

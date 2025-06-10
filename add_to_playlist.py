@@ -1,4 +1,4 @@
-# Version 1.3.1
+# Version 1.8.0
 
 import os
 import sys
@@ -12,37 +12,50 @@ from dotenv import load_dotenv
 # Load from .env if present
 load_dotenv()
 
-# Fallback to environment or .env file (correct keys)
-SPOTIPY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
-SPOTIPY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
-SPOTIPY_REDIRECT_URI = os.getenv("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:9090")
+SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
+SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
+SPOTIFY_REDIRECT_URI = os.getenv("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:9090")
 
-if not SPOTIPY_CLIENT_ID or not SPOTIPY_CLIENT_SECRET:
+if not SPOTIFY_CLIENT_ID or not SPOTIFY_CLIENT_SECRET:
     print("Error: Spotify credentials not found. Set SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET as environment variables or in a .env file.")
     sys.exit(1)
 
 SCOPE = "playlist-modify-public"
 
 sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
-    client_id=SPOTIPY_CLIENT_ID,
-    client_secret=SPOTIPY_CLIENT_SECRET,
-    redirect_uri=SPOTIPY_REDIRECT_URI,
+    client_id=SPOTIFY_CLIENT_ID,
+    client_secret=SPOTIFY_CLIENT_SECRET,
+    redirect_uri=SPOTIFY_REDIRECT_URI,
     scope=SCOPE
 ))
 
 def extract_band_names(filename):
-    band_names = []
+    upcoming = []
+    past = []
+    today = datetime.today().date()
     with open(filename, "r", encoding="utf-8") as f:
         for line in f:
             parts = line.strip().split("|")
             if len(parts) >= 2:
+                date_str = parts[0].strip()
+                try:
+                    show_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+                except ValueError:
+                    continue
                 bands_part = parts[1].strip()
                 bands = [b.strip() for b in bands_part.split(",") if b.strip()]
-                band_names.extend(bands)
-    return band_names  # keep order
+                if show_date < today:
+                    past.extend(bands)
+                else:
+                    upcoming.extend(bands)
+    return upcoming, past
 
-def create_playlist(title):
+def find_or_create_playlist(title):
     user_id = sp.current_user()["id"]
+    playlists = sp.current_user_playlists(limit=50)["items"]
+    for pl in playlists:
+        if pl["name"] == title:
+            return pl["id"], pl["external_urls"]["spotify"]
     playlist = sp.user_playlist_create(user=user_id, name=title, public=True)
     return playlist["id"], playlist["external_urls"]["spotify"]
 
@@ -53,51 +66,67 @@ def find_exact_artist_match(band):
             return artist
     return None
 
-def add_top_tracks_to_playlist(band_names, playlist_id, output_csv, max_tracks_per_artist=2):
-    track_uris = []
-    all_tracks = []
+def get_current_playlist_track_uris(playlist_id):
+    track_uris = set()
+    results = sp.playlist_items(playlist_id, limit=100)
+    while results:
+        for item in results["items"]:
+            track = item.get("track")
+            if track:
+                track_uris.add(track["uri"])
+        if results.get("next"):
+            results = sp.next(results)
+        else:
+            break
+    return track_uris
+
+def sync_top_tracks(band_names, playlist_id, max_tracks_per_artist=2):
+    current_uris = get_current_playlist_track_uris(playlist_id)
+    desired_uris = set()
 
     for band in band_names:
         artist = find_exact_artist_match(band)
         if artist:
-            artist_id = artist["id"]
-            artist_genres = ", ".join(artist.get("genres", []))
-            top_tracks = sp.artist_top_tracks(artist_id)["tracks"][:max_tracks_per_artist]
+            top_tracks = sp.artist_top_tracks(artist["id"])["tracks"][:max_tracks_per_artist]
             for track in top_tracks:
-                uri = track["uri"]
-                name = track["name"]
-                artist_name = track["artists"][0]["name"]
-                url = track["external_urls"]["spotify"]
-                duration_ms = track["duration_ms"]
-                duration_min = round(duration_ms / 60000, 2)
-                album = track["album"]["name"]
-                all_tracks.append([artist_name, name, url, album, artist_genres, duration_min])
-                track_uris.append(uri)
+                desired_uris.add(track["uri"])
 
-    if track_uris:
-        sp.playlist_add_items(playlist_id, track_uris)
+    to_add = list(desired_uris - current_uris)
+    to_remove = list(current_uris - desired_uris)
 
-    with open(output_csv, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["Artist", "Track", "Spotify URL", "Album", "Genres", "Duration (min)"])
-        writer.writerows(all_tracks)
+    if to_remove:
+        sp.playlist_remove_all_occurrences_of_items(playlist_id, to_remove)
+    if to_add:
+        sp.playlist_add_items(playlist_id, to_add)
+
+def append_top_tracks(band_names, playlist_id, max_tracks_per_artist=2):
+    for band in band_names:
+        artist = find_exact_artist_match(band)
+        if artist:
+            top_tracks = sp.artist_top_tracks(artist["id"])["tracks"][:max_tracks_per_artist]
+            uris = [track["uri"] for track in top_tracks]
+            if uris:
+                sp.playlist_add_items(playlist_id, uris)
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python add_to_playlist.py <artist_file.txt> [playlist_name]")
+        print(f"Usage: python {os.path.basename(sys.argv[0])} <artist_file.txt>")
         sys.exit(1)
 
     artist_file = sys.argv[1]
-    playlist_title = sys.argv[2] if len(sys.argv) > 2 else f"Pilot Light Playlist {datetime.today().strftime('%Y-%m-%d')}"
+    upcoming_bands, past_bands = extract_band_names(artist_file)
 
-    band_names = extract_band_names(artist_file)
-    playlist_id, playlist_url = create_playlist(playlist_title)
+    upcoming_id, upcoming_url = find_or_create_playlist("Pilot Light Playlist: Upcoming Shows")
+    recent_id, recent_url = find_or_create_playlist("Pilot Light Playlist: Recent Shows")
 
-    csv_filename = f"playlist_tracks_{datetime.today().strftime('%Y-%m-%d')}.csv"
-    add_top_tracks_to_playlist(band_names, playlist_id, csv_filename)
+    # Smart sync upcoming playlist
+    sync_top_tracks(upcoming_bands, upcoming_id)
 
-    print(f"\nPlaylist '{playlist_title}' created: {playlist_url}")
-    print(f"Tracklist saved to: {csv_filename}")
+    # Append new past bands to recent playlist
+    append_top_tracks(past_bands, recent_id)
+
+    print(f"\nUpdated: {upcoming_url}")
+    print(f"Added past shows to: {recent_url}")
 
 if __name__ == "__main__":
     main()

@@ -1,96 +1,94 @@
-# Pilot Light Spotify Playlist Generator
+# Pilot Light Playlist Generator
 
-This tool scrapes upcoming events from thepilotlight.com, extracts artist names, finds their most popular tracks on Spotify, and builds a playlist for you.
+This project scrapes upcoming show data from [thepilotlight.com](https://thepilotlight.com), parses band names, and builds Spotify playlists for:
 
-## Features
+- **Upcoming Shows**
+- **Recent Shows**
 
-- Automatically scrapes upcoming shows
-- Skips canceled or non-band content (like "Out Series" and strike-throughs)
-- Finds the correct artist using exact name matching
-- Adds top 2 Spotify tracks per artist
-- Maintains show order in playlist
-- Exports track metadata to a CSV file
+It integrates with the Spotify API to search for each band and add their top two tracks to a public playlist.
 
-## Setup
+---
 
-### 1. Clone the Repo
+## Requirements
 
-```bash
-git clone https://github.com/yourusername/pilotlight-playlist.git
-cd pilotlight-playlist
-```
+- Python 3.7+
+- Spotify developer credentials
+- `requests`, `beautifulsoup4`, `spotipy`, `python-dotenv`
 
-### 2. Install Python Dependencies
+Install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Create a Spotify Developer App
+---
 
-Visit: https://developer.spotify.com/dashboard  
-- Click "Create an App"
-- Note your Client ID and Client Secret
-- Set Redirect URI to: http://127.0.0.1:9090
+## Environment Configuration
 
-### 4. Add Your Credentials
+Create a `.env` file in the root directory (or use `.env_template` as a guide):
 
-Copy the environment template:
+```
+SPOTIFY_CLIENT_ID="your_client_id"
+SPOTIFY_CLIENT_SECRET="your_client_secret"
+SPOTIFY_REDIRECT_URI="http://127.0.0.1:9090"
+```
+
+---
+
+## How to Use
+
+### 1. Create or update playlists for **upcoming shows**
 
 ```bash
-cp .env_template .env
+python create_pilotlight_playlist.py
 ```
 
-Then edit `.env` with your Spotify keys:
+This will scrape shows from today forward and generate a playlist called:
 
-```env
-SPOTIFY_CLIENT_ID=your_client_id
-SPOTIFY_CLIENT_SECRET=your_client_secret
-SPOTIFY_REDIRECT_URI=http://127.0.0.1:9090
+```
+Pilot Light Playlist: Upcoming Shows
 ```
 
-## Running the Full Script
+If the playlist already exists, it is updated. Tracks from past events are removed and moved to:
 
-Use the unified runner script:
+```
+Pilot Light: Recent Shows
+```
+
+### 2. Scrape for **custom date ranges**
+
+Use optional week arguments:
 
 ```bash
-python run_all.py
+python pilotlight_scraper.py --week_start=0 --week_stop=3
 ```
 
-This will:
-1. Scrape upcoming events (default: today through 3 weeks out)
-2. Build a Spotify playlist
-3. Export a CSV with all track details
-
-## Customizing the Date Range
-
-By default, the scraper includes events from this week to 3 weeks from now.
-
-You can customize that with:
+To get all upcoming shows (no date window):
 
 ```bash
-python pilotlight_scraper.py --week_start 1 --week_stop 2
+python pilotlight_scraper.py
 ```
 
-This would include events starting next week through 2 weeks from now.
-
-Then run the playlist builder manually:
+To get past shows only (used to seed the Recent Shows playlist):
 
 ```bash
-python add_to_playlist.py upcoming_artists_YYYY-MM-DD.txt
+python pilotlight_scraper.py --week_start=-100 --week_stop=0
+python add_to_playlist.py upcoming_artists_<date>.txt "Pilot Light: Recent Shows"
 ```
 
-Replace `YYYY-MM-DD` with the date on the file that was just generated.
+---
 
-## Output Files
+## Known Issues
 
-- `upcoming_artists_YYYY-MM-DD.txt`: Band metadata per event
-- `playlist_tracks_YYYY-MM-DD.csv`: CSV export with track/artist info
-- Spotify playlist URL is printed in the terminal
+- 🔹 Band names from **today's date** may be skipped if date comparison is overly strict
+- 🔹 Requires Spotify developer credentials to function
 
-## Requirements
+---
 
-- Python 3.8+
-- A free Spotify account (plus developer app)
-- Internet access
+## 📂 Output
+
+- `upcoming_artists_<date>.txt`: Raw scraped data
+- `playlist_tracks_<date>.csv`: Tracks added to Spotify
+
+---
 
