@@ -129,6 +129,7 @@ with open(out_file, "w", encoding="utf-8") as fp:
 
 if args.week_stop < 0:
     log.info("Wrote %d events ➔ %s", len(events), out_file)
+    log.info("Suggested playlist title: Pilot Light Playlist: Upcoming Shows")
 else:
     start_lbl = start_date.strftime("%b %d")
     end_lbl = (end_date - timedelta(days=1)).strftime("%b %d")
