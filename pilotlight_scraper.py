@@ -38,9 +38,15 @@ def parse_event(p):
         return None
 
     date_str = f"{match.group(2)} {match.group(3)} {datetime.today().year}"
-    try:
-        show_date = datetime.strptime(date_str, "%B %d %Y").date()
-    except ValueError:
+
+    # parse both abbreviated and full month names
+    for fmt in ("%b %d %Y", "%B %d %Y"):
+        try:
+            show_date = datetime.strptime(date_str, fmt).date()
+            break
+        except ValueError:
+            show_date = None
+    if show_date is None:
         print(f"Date parse error: '{date_str}' from text: {text}")
         return None
 
