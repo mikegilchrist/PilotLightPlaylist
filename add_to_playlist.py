@@ -1,3 +1,4 @@
+# File: add_to_playlist.py (Version 1.12.0)
 #!/usr/bin/env python3
 # Purpose: Sync Spotify playlists from scraped artist list with dry-run and verbose
 # Usage: python add_to_playlist.py [--dry-run/-n] [--verbose/-v] artist_file
@@ -17,7 +18,6 @@ import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from dotenv import load_dotenv
 
-# CLI
 parser = argparse.ArgumentParser(
     description="Sync Spotify playlists from Pilot Light artist list"
 )
@@ -33,16 +33,15 @@ parser.add_argument(
 )
 parser.add_argument(
     "artist_file",
-    help="Path to scraped events file (date | BAND1, BAND2, ...)"
+    help="Path to scraped events file (date | BAND1, BAND2, …)"
 )
 args = parser.parse_args()
-
 dry_run = args.dry_run
+
 level = logging.DEBUG if args.verbose else logging.INFO
 logging.basicConfig(format="%(message)s", level=level)
 log = logging.getLogger()
 
-# Initialize or stub Spotify client
 def init_spotify():
     load_dotenv()
     if dry_run:
@@ -52,10 +51,10 @@ def init_spotify():
             def current_user_playlists(self, limit): return {'items': []}
             def user_playlist_create(self, user, name, public=True):
                 log.info(f"[DRY RUN] Would create playlist '{name}' for user {user}")
-                return {'id': 'dry_id', 'external_urls': {'spotify': 'https://open.spotify.com/playlist/dry_id'}}
-            def search(self, q, type, limit=1): return {'artists': {'items': []}}
-            def artist_top_tracks(self, artist_id): return {'tracks': []}
-            def playlist_items(self, playlist_id): return {'items': []}
+                return {'id':'dry_id','external_urls':{'spotify':'https://open.spotify.com/playlist/dry_id'}}
+            def search(self, q, type, limit=1): return {'artists':{'items':[]}}
+            def artist_top_tracks(self, artist_id): return {'tracks':[]}
+            def playlist_items(self, playlist_id): return {'items':[]}
             def playlist_remove_all_occurrences_of_items(self, pid, items):
                 log.info(f"[DRY RUN] Would remove {len(items)} items from {pid}")
             def playlist_add_items(self, pid, items):
@@ -72,7 +71,6 @@ def init_spotify():
 
 sp = init_spotify()
 
-# Extract bands
 def extract_band_names(fn):
     upcoming, past = [], []
     with open(fn, encoding="utf-8") as f:
@@ -85,23 +83,17 @@ def extract_band_names(fn):
             except ValueError:
                 continue
             bands = [b.strip() for b in parts[1].split(",")]
-            if date >= datetime.today().date():
-                upcoming.extend(bands)
-            else:
-                past.extend(bands)
+            (upcoming if date >= datetime.today().date() else past).extend(bands)
     return upcoming, past
 
-# Find or create playlist
 def find_or_create(title):
     user = sp.current_user()["id"]
-    items = sp.current_user_playlists(limit=50)["items"]
-    for pl in items:
+    for pl in sp.current_user_playlists(limit=50)["items"]:
         if pl["name"] == title:
             return pl["id"], pl["external_urls"]["spotify"]
     pl = sp.user_playlist_create(user=user, name=title, public=True)
     return pl["id"], pl["external_urls"]["spotify"]
 
-# Sync helper
 def sync_tracks(bands, pid):
     existing = [t["track"]["id"] for t in sp.playlist_items(pid)["items"]]
     to_add = []
@@ -119,17 +111,15 @@ def sync_tracks(bands, pid):
     if to_add:
         sp.playlist_add_items(pid, to_add)
 
-# Main
-
 def main():
     upcoming, past = extract_band_names(args.artist_file)
-    up_id, up_url = find_or_create("Pilot Light Upcoming Shows")
-    rec_id, rec_url = find_or_create("Pilot Light Recent Shows")
-    log.info("Syncing Upcoming...")
+    up_id, _ = find_or_create("Pilot Light Upcoming Shows")
+    rec_id, _ = find_or_create("Pilot Light Recent Shows")
+    log.info("Syncing Upcoming…")
     sync_tracks(upcoming, up_id)
-    log.info("Syncing Recent...")
+    log.info("Syncing Recent…")
     sync_tracks(past, rec_id)
-    log.info("Done.\nUpcoming: %s\nRecent: %s", up_url, rec_url)
+    log.info("All done.")
 
 if __name__ == "__main__":
     main()
