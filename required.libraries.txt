@@ -1,0 +1,6 @@
+# libraries used by PilotLightPlaylist
+requests 
+beautifulsoup4 
+spotipy 
+python-dotenv 
+

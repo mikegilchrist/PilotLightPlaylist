@@ -18,7 +18,7 @@ It integrates with the Spotify API to search for each band and add their top two
 Install dependencies:
 
 ```bash
-pip install -r requirements.txt
+pip install -r required.libraries.txt
 ```
 
 ---
