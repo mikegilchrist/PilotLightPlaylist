@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Date: 2025-09-17
-# Version: 1.5.4
+# Version: 1.5.6
 # Purpose: Scrape Pilot Light upcoming events with dry-run mode and timestamped output
 # Usage: python create_pilotlight_playlist.py [--backup-only] [--dry-run] [--force] [--verbose] [filename]
 # Input:
@@ -8,7 +8,7 @@
 #   --dry-run: Write to ./tmp-* files and do not update Spotify
 #   --force / -f: Overwrite existing backup files
 #   --verbose: Print progress messages
-#   filename: Optional artist input file (e.g., upcoming_artists-YYYY-MM-DD.csv)
+#   filename: Optional artist input file (default e.g. upcoming_artists-YYYY-MM-DD.csv)
 # Output: Writes/updates Spotify playlists or simulates update and writes to local file
 # Chat name: PilotLight Playlist - Filename Preprocessing
 # GPT Model: OpenAI o4-mini
@@ -18,11 +18,11 @@ import argparse
 import os
 import sys
 from datetime import datetime
-from playlist_utils import init_spotify, load_config, backup_playlist, restore_playlist, update_playlist
+from playlist_utils import init_spotify, load_config, backup_playlist, update_playlist
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Update Spotify playlist from artist file.")
-    parser.add_argument("filename", nargs="?", help="Scraped artist file (optional).")
+    parser.add_argument("filename", nargs="?", help="Optional scraped artist file (e.g., upcoming_artists_YYYY-MM-DD.csv)")
     parser.add_argument("--backup-only", action="store_true", help="Only back up playlists")
     parser.add_argument("--dry-run", action="store_true", help="Simulate update, write to ./tmp-* files")
     parser.add_argument("--force", "-f", action="store_true", help="Overwrite existing backup files")
@@ -46,42 +46,42 @@ if args.dry_run:
 # ─────────────────────────────────────────────────────────────────────────────
 # Backup-only or Dry-run logic
 # ─────────────────────────────────────────────────────────────────────────────
-if args.backup_only or args.dry_run:
-    sp = init_spotify()
-    for key in ["upcoming", "recent"]:
-        playlist_cfg = config["playlists"].get(key)
-        if not playlist_cfg:
-            continue
+sp = init_spotify()
+for key in ["upcoming", "recent"]:
+    playlist_cfg = config["playlists"].get(key)
+    if not playlist_cfg:
+        continue
 
-        title = playlist_cfg["name"]
-        backup_file = f"{key}_artists-{now}.csv"
+    title = playlist_cfg["name"]
+    backup_file = f"{key}_artists-{now}.csv"
 
-        if os.path.exists(backup_file) and not args.force:
-            base, ext = os.path.splitext(backup_file)
-            counter = 1
-            while os.path.exists(f"{base}-{counter}{ext}"):
-                counter += 1
-            backup_file = f"{base}-{counter}{ext}"
+    if os.path.exists(backup_file) and not args.force:
+        base, ext = os.path.splitext(backup_file)
+        counter = 1
+        while os.path.exists(f"{base}-{counter}{ext}"):
+            counter += 1
+        backup_file = f"{base}-{counter}{ext}"
 
-        if args.verbose or args.dry_run:
-            print(f"{'[DRY RUN] ' if args.dry_run else ''}Backing up: {title} ➔ {backup_file}")
+    if args.verbose or args.dry_run:
+        print(f"{'[DRY RUN] ' if args.dry_run else ''}Backing up: {title} ➔ {backup_file}")
 
-        if args.dry_run:
-            backup_file = f"./tmp-{os.path.basename(backup_file)}"
+    if args.dry_run:
+        backup_file = f"./tmp-{os.path.basename(backup_file)}"
 
-        backup_playlist(sp, playlist_cfg["id"], backup_file)
+    backup_playlist(sp, playlist_cfg["id"], backup_file)
 
-    if args.backup_only:
-        sys.exit(0)
+if args.backup_only:
+    sys.exit(0)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Read input artist file
 # ─────────────────────────────────────────────────────────────────────────────
-sp = init_spotify()
-
 with open(args.filename) as f:
     artists = [line.strip() for line in f if line.strip()]
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Update both playlists using same source
+# ─────────────────────────────────────────────────────────────────────────────
 for key, playlist_cfg in config["playlists"].items():
     update_playlist(
         sp,
