@@ -1,4 +1,12 @@
 #!/usr/bin/env python3
+# ============================================================================
+# DEPRECATED: Use create_pilotlight_playlist.py instead.
+#
+# This script references a stale config structure and is superseded by the
+# main driver script which handles scraping, recent/upcoming splitting,
+# and artist-based track lookup.
+# ============================================================================
+#
 # Date: 2025-09-16
 # Version: 1.2.0
 # Purpose: Add artists to a Spotify playlist based on a text file of artist names

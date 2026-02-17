@@ -4,3 +4,4 @@ beautifulsoup4
 spotipy 
 python-dotenv 
 pyyaml
+python-dateutil
