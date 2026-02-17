@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Date: 2025-09-17
-# Version: 1.5.7
+# Version: 1.5.8
 # Purpose: Create playlist by scraping Pilot Light's upcoming events with dry-run mode and timestamped output
 # Usage: python create_pilotlight_playlist.py [--backup-only] [--dry-run] [--force] [--verbose] [filename]
 # Input:
@@ -39,16 +39,24 @@ date_str = now_dt.strftime("%Y-%m-%d")
 # ─────────────────────────────────────────────────────────────────────────────
 # Assign default filename if not given → run scraper and use generated file
 # ─────────────────────────────────────────────────────────────────────────────
-if not args.filename:
-    scraped_file = f"upcoming-artists_{date_str}.csv"
-    if args.verbose:
-        print(f"[INFO] No filename provided, scraping and saving to {scraped_file}")
-    scrape_upcoming_artists(output_path=scraped_file)
-    args.filename = scraped_file
+
+# Determine output filename early                                                                                                               
+if not args.filename:                                                                                                                           
+    args.filename = f"upcoming-artists_{date_str}.csv"                                                                                          
+                                                                                                                                                
+# Adjust output path for dry-run mode                                                                                                           
+if args.dry_run:                                                                                                                                
+    args.filename = f"./tmp-{os.path.basename(args.filename)}"                                                                                  
+                                                                                                                                                
+# Run scraper only if file doesn’t already exist                                                                                                
+if not os.path.exists(args.filename):                                                                                                           
+    if args.verbose:                                                                                                                            
+        print(f"[INFO] Scraping and saving to {args.filename}")                                                                                 
+    scrape_upcoming_artists(output_path=args.filename) 
 
 # Prepend tmp- to output path for dry run mode
-if args.dry_run:
-    args.filename = f"./tmp-{os.path.basename(args.filename)}"
+#if args.dry_run:
+#    args.filename = f"./tmp-{os.path.basename(args.filename)}"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Backup-only or Dry-run logic
