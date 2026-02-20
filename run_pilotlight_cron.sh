@@ -29,14 +29,15 @@
 #               ClaudeAI Opus 4.6
 # ============================================================================
 
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 # ---- Configuration ----
-# Remove --dry-run below once you've verified cron output is correct
 DRY_RUN="--dry-run"
+#comment out line below to implement dry runs
+DRY_RUN=""
 VERBOSE="--verbose"
 DEBUG=""
 
