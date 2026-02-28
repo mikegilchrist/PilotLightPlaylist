@@ -1,5 +1,4 @@
 # Repo specific
-config.yaml
 logs/
 # Byte-compiled / optimized / DLL files
 __pycache__/
