@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # ============================================================================
 # Script:       playlist_utils.py
-# Version:      2.0.0
-# Date:         2026-02-17
+# Version:      2.1.0
+# Date:         2026-03-01
 # Purpose:      Spotify helpers: auth, config, backup, artist search, playlist update
 #
 # Provides init_spotify(), load_config(), backup_playlist(),
@@ -24,6 +24,7 @@
 import csv
 import logging
 import os
+import re
 
 import spotipy
 import yaml
@@ -81,6 +82,68 @@ def restore_playlist(sp, playlist_id, uris):
         sp.playlist_add_items(playlist_id, uris[i:i + 100])
 
 
+# Genres that are clearly wrong for a small indie/punk/experimental venue
+_BLOCKED_GENRES = {
+    "classical", "opera", "baroque", "renaissance", "medieval",
+    "romantic era", "classical performance", "classical piano",
+    "orchestral", "chamber music", "smooth jazz", "easy listening",
+    "adult contemporary", "new age", "bollywood", "k-pop", "j-pop",
+    "latin pop", "reggaeton", "children's music", "lullaby", "nursery",
+}
+
+
+def _normalize_name(name):
+    """Lowercase and strip non-alphanumeric characters (keep spaces)."""
+    return re.sub(r"[^a-z0-9 ]", "", name.lower()).strip()
+
+
+def _is_name_match(scraped_name, spotify_name):
+    """Check whether the scraped name acceptably matches the Spotify name.
+
+    Single-word scraped names require an exact match to the full Spotify
+    artist name.  Multi-word scraped names also accept prefix or suffix
+    matches (word-boundary aligned).
+    """
+    s_norm = _normalize_name(scraped_name)
+    sp_norm = _normalize_name(spotify_name)
+
+    if not s_norm or not sp_norm:
+        return False
+
+    # Exact match after normalization
+    if s_norm == sp_norm:
+        return True
+
+    s_words = s_norm.split()
+    if len(s_words) == 1:
+        # Single-word names must match exactly (already checked above)
+        return False
+
+    # Multi-word: accept if scraped name is a contiguous prefix or suffix
+    sp_words = sp_norm.split()
+    n = len(s_words)
+    # Suffix match: last N words of Spotify name equal scraped words
+    if sp_words[-n:] == s_words:
+        return True
+    # Prefix match: first N words of Spotify name equal scraped words
+    if sp_words[:n] == s_words:
+        return True
+
+    return False
+
+
+def _has_blocked_genre(artist_obj):
+    """Return True if ALL of the artist's genres are in the blocklist.
+
+    Artists with empty genre lists are accepted (most small/local bands
+    have no genre tags on Spotify).
+    """
+    genres = artist_obj.get("genres", [])
+    if not genres:
+        return False
+    return all(g.lower() in _BLOCKED_GENRES for g in genres)
+
+
 def search_artist_top_tracks(sp, artist_name, num_tracks=3):
     """Search Spotify for an artist and return their top tracks.
 
@@ -99,14 +162,27 @@ def search_artist_top_tracks(sp, artist_name, num_tracks=3):
         log.debug("  No artist match found for: %s", artist_name)
         return []
 
-    # Pick the best match: prefer exact (case-insensitive) name match
+    # Pick the best candidate: must pass name match and genre filter
     artist = None
     for a in artists:
-        if a["name"].upper() == artist_name.upper():
-            artist = a
-            break
+        name_ok = _is_name_match(artist_name, a["name"])
+        genre_blocked = _has_blocked_genre(a)
+        if not name_ok:
+            log.debug("  Rejected '%s': name mismatch (scraped='%s')",
+                      a["name"], artist_name)
+            continue
+        if genre_blocked:
+            log.debug("  Rejected '%s': all genres blocked %s",
+                      a["name"], a.get("genres", []))
+            continue
+        artist = a
+        log.debug("  Accepted '%s' (genres=%s)", a["name"],
+                  a.get("genres", []))
+        break
+
     if artist is None:
-        artist = artists[0]  # fall back to top result
+        log.debug("  No acceptable match for: %s", artist_name)
+        return []
 
     artist_id = artist["id"]
     display_name = artist["name"]
