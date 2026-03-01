@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # ============================================================================
 # Script:       create_pilotlight_playlist.py
-# Version:      2.0.0
-# Date:         2026-02-17
+# Version:      2.1.0
+# Date:         2026-03-01
 # Purpose:      Scrape Pilot Light events and update Spotify playlists
 #
 # Scrapes upcoming show listings, splits artists into "upcoming" (future
@@ -36,6 +36,8 @@ import os
 import sys
 from datetime import datetime
 
+from history_utils import (append_to_history, ensure_archive_playlist, load_history,
+                          split_history, update_playlist_descriptions)
 from pilotlight_scraper import scrape_upcoming_artists
 from playlist_utils import backup_playlist, init_spotify, load_config, update_playlist
 
@@ -193,6 +195,16 @@ def main():
 
         backup_playlist(sp, playlist_cfg["id"], backup_file)
 
+    # Back up any existing archive playlists
+    for label, acfg in config["playlists"].get("archives", {}).items():
+        backup_file = make_backup_path(f"archive-{label}", now_str, force=args.force)
+        if args.dry_run:
+            backup_file = f"./tmp-{os.path.basename(backup_file)}"
+        if args.verbose:
+            prefix = "[DRY RUN] " if args.dry_run else ""
+            print(f"{prefix}Backing up: {acfg['name']} -> {backup_file}")
+        backup_playlist(sp, acfg["id"], backup_file)
+
     if args.backup_only:
         print("Backup complete.")
         sys.exit(0)
@@ -204,13 +216,35 @@ def main():
     log.info("Artists split: %d upcoming, %d recent",
              len(upcoming_artists), len(recent_artists))
 
+    # ---- Update show history ----
+    append_to_history(all_artists)
+
+    # ---- Build recent + archive from history ----
+    history = load_history()
+    recent_from_history, archive_quarters = split_history(history, today)
+
+    log.info("History: %d recent, %d archive quarters",
+             len(recent_from_history), len(archive_quarters))
+
+    # ---- Update archive playlists ----
+    for label in sorted(archive_quarters):
+        archive_cfg = ensure_archive_playlist(
+            sp, label, config, "config.yaml", dry_run=args.dry_run)
+        output_file = f"playlist_archive-{label}_{now_str}.csv"
+        if args.dry_run:
+            output_file = f"./tmp-{os.path.basename(output_file)}"
+        update_playlist(sp, archive_quarters[label], archive_cfg,
+                        output_file, dry_run=args.dry_run, verbose=args.verbose)
+
     # ---- Update each playlist with its appropriate artist set ----
     playlist_data = {
         "upcoming": upcoming_artists,
-        "recent": recent_artists,
+        "recent": recent_from_history,
     }
 
     for key, playlist_cfg in config["playlists"].items():
+        if key == "archives":
+            continue  # handled separately above
         artists = playlist_data.get(key, [])
         if not artists:
             if args.verbose:
@@ -230,6 +264,9 @@ def main():
             dry_run=args.dry_run,
             verbose=args.verbose,
         )
+
+    # ---- Update playlist descriptions ----
+    update_playlist_descriptions(sp, config, dry_run=args.dry_run)
 
 
 if __name__ == "__main__":
