@@ -1,6 +1,7 @@
 # Repo specific
 logs/
 show_history.csv
+config.yaml
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
